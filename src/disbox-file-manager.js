@@ -219,6 +219,8 @@ class DisboxFileManager {
         this.userId = userId;
         this.discordFileStorage = storage;
         this.fileTree = fileTree;
+        this.uploadQueue = [];
+        this.isUploading = false;
     }
 
 
@@ -411,21 +413,34 @@ class DisboxFileManager {
     }
 
     async uploadFile(path, fileBlob, onProgress) {
-        let file = this.getFile(path);
-        if (!file) {
-            await this.createFile(path);
-            file = this.getFile(path);
-        }
-        if (file.type === 'directory') {
-            throw new Error(`Directory can't have content: ${path}`);
-        }
-        const contentReferences = await this.discordFileStorage.upload(fileBlob, file.id, onProgress);
-        await this.updateFile(file.path, { size: fileBlob.size, content: JSON.stringify(contentReferences) });
+        this.uploadQueue.push({ path, fileBlob, onProgress });
 
-        if (onProgress) {
-            onProgress(1, 1);
+        if (this.isUploading) {
+            this.processUploadQueue();
         }
-        return file;
+    }
+
+    async processUploadQueue() {
+        this.isUploading = true;
+        while (this.uploadQueue.length > 0) {
+            const { path, fileBlob, onProgress } = this.uploadQueue.shift();
+            
+            let file = this.getFile(path);
+            if (!file) {
+                await this.createFile(path);
+                file = this.getFile(path);
+            }
+            if (file.type === 'directory') {
+                throw new Error(`Directory can't have content: ${path}`);
+            }
+            const contentReferences = await this.discordFileStorage.upload(fileBlob, file.id, onProgress);
+            await this.updateFile(file.path, { size: fileBlob.size, content: JSON.stringify(contentReferences) });
+
+            if (onProgress) {
+                onProgress(1, 1);
+            }
+        }
+        this.isUploading = false;
     }
 
     async downloadFile(path, writeStream, onProgress) {
